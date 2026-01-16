@@ -12,6 +12,7 @@ Features:
 - Professional layout with headers, sections, and styling
 - Page numbering with total page count
 - SVG logo support with proper aspect ratio maintenance
+- Customizable PDF metadata (title, author, subject, creator)
 
 Usage:
     python3 yaml_to_pdf_generator.py
@@ -49,13 +50,19 @@ from reportlab.graphics.shapes import Drawing
 import io
 
 class ReleaseNotesPDFGenerator:
-    def __init__(self, yaml_file_path, output_path=None):
+    def __init__(self, yaml_file_path, output_path=None, pdf_metadata=None):
         """
         Initialize the PDF generator with YAML file path.
         
         Args:
             yaml_file_path (str): Path to the YAML file containing release notes
             output_path (str): Path for the output PDF file (optional)
+            pdf_metadata (dict): PDF metadata dictionary with keys:
+                - Title: PDF title
+                - Author: PDF author
+                - Subject: PDF subject
+                - Creator: Content creator
+                - Producer: PDF producer (optional, defaults to 'ReportLab PDF Library')
         """
         self.yaml_file_path = yaml_file_path
         self.output_path = output_path or "CCDI_Hub_Release_Notes.pdf"
@@ -63,6 +70,17 @@ class ReleaseNotesPDFGenerator:
         self.total_pages = 0
         self.current_page = 0
         self.logo_drawing = None  # Cache for converted logo
+        
+        # Set default PDF metadata if not provided
+        self.pdf_metadata = pdf_metadata or {
+            'Title': 'CCDI Hub Release Notes',
+            'Author': 'National Cancer Institute',
+            'Subject': 'CCDI Hub Release Notes and Updates',
+            'Creator': 'CCDI Hub Release Notes Generator',
+            'Producer': 'ReportLab PDF Library',
+        }
+
+        print(self.pdf_metadata)
         
         # Define colors based on the screenshot
         self.nih_blue = HexColor('#2f5496')
@@ -481,10 +499,20 @@ class ReleaseNotesPDFGenerator:
         
         # Use a simple, reliable approach with a reasonable page count
         # Based on testing, the actual page count is 33 pages (32 content + 1 TOC)
-        self.total_pages = 33
+        self.total_pages = 37
         
-        # Build PDF with header/footer
+        # Build PDF with header/footer and metadata
         def add_header_footer(canvas, doc):
+            # Set PDF metadata on the canvas
+            canvas.setTitle(self.pdf_metadata.get('Title', ''))
+            canvas.setAuthor(self.pdf_metadata.get('Author', ''))
+            canvas.setSubject(self.pdf_metadata.get('Subject', ''))
+            canvas.setCreator(self.pdf_metadata.get('Creator', ''))
+            canvas.setProducer(self.pdf_metadata.get('Producer', 'ReportLab PDF Library'))
+            if 'Keywords' in self.pdf_metadata:
+                canvas.setKeywords(self.pdf_metadata['Keywords'])
+            
+            # Add header and footer
             self.create_header_footer(canvas, doc)
         
         doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
