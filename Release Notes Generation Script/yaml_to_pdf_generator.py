@@ -18,8 +18,8 @@ Usage:
     python3 yaml_to_pdf_generator.py
 
 Requirements:
-    - newsData.yaml file in the same directory
-    - Portal_Logo.svg file (optional, for logo display)
+    - site_announcement_log.yaml file in the same directory (or newsData.yaml for legacy format)
+    - CCDC_Logo.svg file (optional, for logo display)
 """
 
 import yaml
@@ -65,7 +65,7 @@ class ReleaseNotesPDFGenerator:
                 - Producer: PDF producer (optional, defaults to 'ReportLab PDF Library')
         """
         self.yaml_file_path = yaml_file_path
-        self.output_path = output_path or "CCDI_Hub_Release_Notes.pdf"
+        self.output_path = output_path or "CCDC_Release_Notes.pdf"
         self.release_notes = []
         self.total_pages = 0
         self.current_page = 0
@@ -167,6 +167,32 @@ class ReleaseNotesPDFGenerator:
             bulletIndent=10
         ))
         
+        # Nested list item style (for sub-items)
+        self.styles.add(ParagraphStyle(
+            name='NestedListItem',
+            parent=self.styles['Normal'],
+            fontSize=11,
+            textColor=colors.black,
+            spaceAfter=2,
+            alignment=TA_LEFT,
+            fontName='Helvetica',
+            leftIndent=40,
+            bulletIndent=30
+        ))
+        
+        # Deeply nested list item style (for third level and beyond)
+        self.styles.add(ParagraphStyle(
+            name='DeeplyNestedListItem',
+            parent=self.styles['Normal'],
+            fontSize=11,
+            textColor=colors.black,
+            spaceAfter=2,
+            alignment=TA_LEFT,
+            fontName='Helvetica',
+            leftIndent=60,
+            bulletIndent=10
+        ))
+        
         # Footer style
         self.styles.add(ParagraphStyle(
             name='Footer',
@@ -187,21 +213,203 @@ class ReleaseNotesPDFGenerator:
             fontName='Helvetica'
         ))
 
+    def convert_date_format(self, date_str):
+        """
+        Convert date from YYYY-MM-DD format to "Month Date, Year" format.
+        
+        Args:
+            date_str (str): Date in YYYY-MM-DD format
+            
+        Returns:
+            str: Date in "Month Date, Year" format
+        """
+        try:
+            # Parse the date
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            # Format as "Month Date, Year"
+            return date_obj.strftime('%B %d, %Y')
+        except Exception as e:
+            print(f"Warning: Could not parse date '{date_str}': {e}")
+            return date_str
+    
     def load_yaml_data(self):
-        """Load and parse the YAML file."""
+        """Load and parse the YAML file in site_announcement_log.yaml format."""
         try:
             with open(self.yaml_file_path, 'r', encoding='utf-8') as file:
                 data = yaml.safe_load(file)
+            
+            # Check if it's the new format (list of lists) or old format (dict with releaseNotesList)
+            if isinstance(data, list):
+                # New format: site_announcement_log.yaml format
+                # Structure: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
+                self.release_notes = []
                 
-            if 'releaseNotesList' in data:
+                for entry in data:
+                    # Skip non-list entries and entries that don't have enough fields
+                    if not isinstance(entry, list) or len(entry) < 7:
+                        continue
+                    
+                    # Skip if it's the header row (first item is "Type")
+                    first_item = str(entry[0]).strip() if entry[0] else ""
+                    if first_item == "Type":
+                        continue
+                    
+                    # Extract fields: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
+                    type_val = entry[0] if len(entry) > 0 else ""
+                    title = entry[1] if len(entry) > 1 else ""
+                    version = entry[2] if len(entry) > 2 else ""
+                    date_yyyy_mm_dd = entry[3] if len(entry) > 3 else ""
+                    data_type = entry[4] if len(entry) > 4 else ""
+                    highlight = entry[5] if len(entry) > 5 else ""
+                    full_text = entry[6] if len(entry) > 6 else ""
+                    
+                    # Convert date format from YYYY-MM-DD to "Month Date, Year"
+                    date_formatted = self.convert_date_format(date_yyyy_mm_dd) if date_yyyy_mm_dd else "Unknown Date"
+                    
+                    # Create release note dictionary
+                    release_note = {
+                        'type': type_val,
+                        'title': title,
+                        'version': version,
+                        'date': date_formatted,
+                        'dataType': data_type,
+                        'slug': highlight,
+                        'fullText': full_text,
+                        'img': 'updateImgReleaseNotes'
+                    }
+                    
+                    self.release_notes.append(release_note)
+                
+                print(f"Loaded {len(self.release_notes)} release notes entries from site_announcement_log.yaml format")
+                
+            elif isinstance(data, dict) and 'releaseNotesList' in data:
+                # Old format: releaseNotesList structure
                 self.release_notes = data['releaseNotesList']
-                print(f"Loaded {len(self.release_notes)} release notes entries")
+                print(f"Loaded {len(self.release_notes)} release notes entries from releaseNotesList format")
             else:
-                raise ValueError("No 'releaseNotesList' found in YAML file")
+                raise ValueError("YAML file format not recognized. Expected either a list of lists (site_announcement_log.yaml format) or a dict with 'releaseNotesList' key.")
                 
         except Exception as e:
             print(f"Error loading YAML file: {e}")
             sys.exit(1)
+
+    def process_list_item(self, li, level=0, processed_elements=None):
+        """
+        Recursively process a list item and its nested lists.
+        
+        Args:
+            li: BeautifulSoup list item element
+            level: Current nesting level (0 = top level, 1 = nested, 2 = deeply nested, etc.)
+            processed_elements: Set of processed element IDs
+            
+        Returns:
+            list: List of ReportLab Paragraph elements
+        """
+        if processed_elements is None:
+            processed_elements = set()
+        
+        elements = []
+        
+        # Mark this li and its descendants as processed
+        for child in li.descendants:
+            processed_elements.add(id(child))
+        processed_elements.add(id(li))
+        
+        # Check if this li contains a nested ul
+        nested_ul = li.find('ul')
+        
+        if nested_ul:
+            # Mark the nested ul and all its descendants as processed
+            for nested_desc in nested_ul.descendants:
+                processed_elements.add(id(nested_desc))
+            processed_elements.add(id(nested_ul))
+            
+            # Extract the main text (before the nested ul)
+            p_tag = li.find('p')
+            if p_tag:
+                # Get the HTML content of the p tag
+                p_html = str(p_tag)
+                # Remove the nested ul from the HTML
+                nested_ul_html = str(nested_ul)
+                p_html = p_html.replace(nested_ul_html, '')
+                
+                # Convert <strong> to <b> for ReportLab
+                p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                # Remove other HTML tags but keep <b> tags
+                p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                # Clean up extra spaces and remove symbol characters
+                p_html = ' '.join(p_html.split())
+                p_html = p_html.replace('•', '').replace('·', '').strip()
+                
+                main_text = p_html
+            else:
+                # Fallback: extract text without HTML
+                main_text_parts = []
+                for child in li.children:
+                    if child == nested_ul:
+                        break
+                    if hasattr(child, 'get_text'):
+                        text = child.get_text().strip()
+                        if text:
+                            main_text_parts.append(text)
+                    elif hasattr(child, 'string') and child.string and child.string.strip():
+                        main_text_parts.append(child.string.strip())
+                main_text = ' '.join(main_text_parts).strip()
+            
+            # Clean up extra spaces and remove empty content
+            main_text = ' '.join(main_text.split())
+            main_text = main_text.replace('&nbsp;', ' ').strip()
+            
+            if main_text:
+                # Clean up the text - remove any symbol characters that might be present
+                main_text = main_text.replace('•', '').replace('·', '').strip()
+                # Add colon if not present and it looks like a resource name (only for level 0)
+                if level == 0 and ':' not in main_text and not main_text.endswith('.') and not main_text.endswith(':'):
+                    main_text += ':'
+                
+                # Choose style based on level
+                if level == 0:
+                    elements.append(Paragraph(f"• {main_text}", self.styles['ListItem']))
+                elif level == 1:
+                    elements.append(Paragraph(f"• {main_text}", self.styles['NestedListItem']))
+                else:
+                    # Level 2+ - use deeply nested style (more indentation)
+                    elements.append(Paragraph(f"• {main_text}", self.styles['DeeplyNestedListItem']))
+            
+            # Recursively process nested list items
+            for nested_li in nested_ul.find_all('li', recursive=False):
+                nested_elements = self.process_list_item(nested_li, level + 1, processed_elements)
+                elements.extend(nested_elements)
+        else:
+            # Regular li without nested ul - extract text preserving bold formatting
+            p_tag = li.find('p')
+            if p_tag:
+                # Get HTML and preserve <strong> tags
+                p_html = str(p_tag)
+                # Get HTML and preserve <strong> tags
+                p_html = str(p_tag)
+                # Convert <strong> to <b> for ReportLab
+                p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                # Remove other HTML tags but keep <b> tags
+                p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                # Clean up extra spaces
+                p_html = ' '.join(p_html.split())
+                text = p_html.strip()
+            else:
+                # Fallback: extract text
+                text = li.get_text().strip()
+            
+            if text:
+                # Choose style based on level
+                if level == 0:
+                    elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
+                elif level == 1:
+                    elements.append(Paragraph(f"• {text}", self.styles['NestedListItem']))
+                else:
+                    # Level 2+ - use deeply nested style
+                    elements.append(Paragraph(f"• {text}", self.styles['DeeplyNestedListItem']))
+        
+        return elements
 
     def parse_html_content(self, html_content):
         """
@@ -221,21 +429,101 @@ class ReleaseNotesPDFGenerator:
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             
+            # Track which elements we've already processed to avoid duplication
+            processed_elements = set()
+            
             for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'ul', 'li']):
+                # Skip if already processed
+                if id(element) in processed_elements:
+                    continue
+                
                 if element.name == 'p':
-                    # Handle paragraphs
-                    text = element.get_text().strip()
+                    # Skip paragraphs that are inside list items (they'll be handled by the ul/li processing)
+                    if element.find_parent('li') is not None:
+                        continue
+                    
+                    # Check if paragraph contains a nested ul - if so, exclude the ul content
+                    nested_ul = element.find('ul')
+                    if nested_ul:
+                        # Extract text only from elements before the ul
+                        text_parts = []
+                        for child in element.children:
+                            if child == nested_ul:
+                                break  # Stop at nested ul
+                            # Get text from this child, including links
+                            if hasattr(child, 'get_text'):
+                                child_text = child.get_text().strip()
+                                if child_text:
+                                    text_parts.append(child_text)
+                            elif hasattr(child, 'string') and child.string:
+                                text_parts.append(child.string.strip())
+                        text = ' '.join(text_parts).strip()
+                    else:
+                        # No nested ul - get all text including links
+                        # Use get_text() which includes link text, but we'll filter out list content
+                        text = element.get_text().strip()
+                    
+                    # Clean up - remove any text that looks like it's from a list
+                    # If text contains multiple resource names or dataset updates, it's probably duplicated content
                     if text:
+                        # Check if this looks like duplicated list content
+                        resource_keywords = ['Childhood Cancer Data Initiative', 'dbGaP', 'GENIE', 'Kids First Data Resource', 
+                                            'Updated dataset', 'Moved dataset', 'Dataset', 'was replaced']
+                        keyword_count = sum(1 for keyword in resource_keywords if keyword in text)
+                        # If it has multiple keywords, it's likely duplicated list content - skip it
+                        if keyword_count > 2:
+                            processed_elements.add(id(element))
+                            continue
+                    
+                    if text:
+                        # Convert links to clickable hyperlinks
+                        # Find all <a> tags in the paragraph and convert them
+                        links = element.find_all('a', recursive=True)
+                        final_text = text
+                        
+                        if links:
+                            # Build text with hyperlinks by replacing link text with ReportLab link format
+                            # Start with the original text
+                            final_text = text
+                            
+                            # Replace each link in reverse order to preserve positions
+                            for link in reversed(links):
+                                href = link.get('href', '')
+                                link_text = link.get_text().strip()
+                                if href and link_text:
+                                    # Create ReportLab link format (blue, underlined)
+                                    reportlab_link = f'<link href="{href}" color="blue"><u>{link_text}</u></link>'
+                                    # Replace the link text in the final text
+                                    # Use the link text as the replacement key
+                                    if link_text in final_text:
+                                        # Replace and remove any trailing space after the link
+                                        final_text = final_text.replace(link_text, reportlab_link, 1)
+                                        # Remove space immediately after the link
+                                        final_text = final_text.replace(reportlab_link + ' ', reportlab_link)
+                                    else:
+                                        # If exact match not found, try to find and replace
+                                        # Get the full HTML of the link to find its position
+                                        link_html = str(link)
+                                        if link_html in str(element):
+                                            # Replace with ReportLab link format
+                                            final_text = final_text.replace(link_text, reportlab_link)
+                                            # Remove space immediately after the link
+                                            final_text = final_text.replace(reportlab_link + ' ', reportlab_link)
+                            
+                            # Clean up any remaining spaces after links
+                            final_text = re.sub(r'(</link>)\s+', r'\1', final_text)
+                        
                         # Check for inline styles
                         style = element.get('style', '')
                         if 'color: #2f5496' in style and 'font-size: 16pt' in style:
                             # This is a section header
-                            elements.append(Paragraph(text, self.styles['SectionHeader']))
+                            elements.append(Paragraph(final_text, self.styles['SectionHeader']))
                         elif 'color: #2f5496' in style and 'font-size: 13pt' in style:
                             # This is a subsection header
-                            elements.append(Paragraph(text, self.styles['SubsectionHeader']))
+                            elements.append(Paragraph(final_text, self.styles['SubsectionHeader']))
                         else:
-                            elements.append(Paragraph(text, self.styles['ReleaseContent']))
+                            elements.append(Paragraph(final_text, self.styles['ReleaseContent']))
+                    processed_elements.add(id(element))
                 
                 elif element.name in ['h1', 'h2', 'h3']:
                     # Handle headers
@@ -245,34 +533,34 @@ class ReleaseNotesPDFGenerator:
                             elements.append(Paragraph(text, self.styles['SectionHeader']))
                         else:
                             elements.append(Paragraph(text, self.styles['SubsectionHeader']))
+                    processed_elements.add(id(element))
                 
                 elif element.name == 'ul':
+                    # Skip if this ul is nested inside another ul (it will be handled by the parent ul)
+                    if element.find_parent('ul') is not None:
+                        continue
+                    
                     # Handle unordered lists - process all ul elements but avoid duplication
                     for li in element.find_all('li', recursive=False):  # Only direct children
-                        text = li.get_text().strip()
-                        if text:
-                            # Check if this li contains a nested ul
-                            nested_ul = li.find('ul')
-                            if nested_ul:
-                                # If it has a nested ul, just add the main text
-                                main_text = text.split(':')[0] if ':' in text else text
-                                elements.append(Paragraph(f"• {main_text}", self.styles['ListItem']))
-                                # Process the nested ul items
-                                for nested_li in nested_ul.find_all('li', recursive=False):
-                                    nested_text = nested_li.get_text().strip()
-                                    if nested_text:
-                                        elements.append(Paragraph(f"  • {nested_text}", self.styles['ListItem']))
-                            else:
-                                # Regular li without nested ul
-                                elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
+                        # Use recursive helper to process list items at any depth
+                        li_elements = self.process_list_item(li, level=0, processed_elements=processed_elements)
+                        elements.extend(li_elements)
+                    
+                    # Mark the ul and all its descendants as processed
+                    for descendant in element.descendants:
+                        processed_elements.add(id(descendant))
+                    processed_elements.add(id(element))
                 
                 elif element.name == 'li':
+                    # Skip list items that are inside a ul (they're already handled by ul processing)
+                    if element.find_parent('ul') is not None:
+                        continue
+                    
                     # Handle individual list items (only if not inside ul)
-                    # Check if this li is inside a ul element
-                    if element.parent and element.parent.name != 'ul':
-                        text = element.get_text().strip()
-                        if text:
-                            elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
+                    text = element.get_text().strip()
+                    if text:
+                        elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
+                    processed_elements.add(id(element))
                         
         except Exception as e:
             print(f"Error parsing HTML content: {e}")
@@ -286,6 +574,7 @@ class ReleaseNotesPDFGenerator:
     def convert_svg_to_drawing(self, svg_path, target_height=50):
         """
         Convert SVG file to ReportLab Drawing object, maintaining original aspect ratio.
+        Clips content to the viewBox to avoid rendering elements outside the visible area.
         
         Args:
             svg_path (str): Path to the SVG file
@@ -337,7 +626,7 @@ class ReleaseNotesPDFGenerator:
             Drawing: ReportLab Drawing object or None if conversion fails
         """
         if self.logo_drawing is None:
-            svg_logo_path = os.path.join(os.path.dirname(__file__), 'Portal_Logo.svg')
+            svg_logo_path = os.path.join(os.path.dirname(__file__), 'CCDC_Logo.svg')
             if os.path.exists(svg_logo_path):
                 self.logo_drawing = self.convert_svg_to_drawing(svg_logo_path, target_height)
         return self.logo_drawing
@@ -443,21 +732,8 @@ class ReleaseNotesPDFGenerator:
         canvas.setLineWidth(0.5)
         canvas.line(50, footer_y + 15, page_width - 50, footer_y + 15)
 
-    def generate_pdf(self):
-        """Generate the PDF document."""
-        print("Generating PDF...")
-        
-        # Create document
-        doc = SimpleDocTemplate(
-            self.output_path,
-            pagesize=letter,
-            rightMargin=50,
-            leftMargin=50,
-            topMargin=100,
-            bottomMargin=80
-        )
-        
-        # Build content
+    def build_story(self):
+        """Build the story content (can be called multiple times)."""
         story = []
         
         # Add Table of Contents
@@ -497,11 +773,60 @@ class ReleaseNotesPDFGenerator:
             if i < len(self.release_notes) - 1:
                 story.append(PageBreak())
         
-        # Use a simple, reliable approach with a reasonable page count
-        # Based on testing, the actual page count is 33 pages (32 content + 1 TOC)
-        self.total_pages = 37
+        return story
+
+    def generate_pdf(self):
+        """Generate the PDF document."""
+        print("Generating PDF...")
         
-        # Build PDF with header/footer and metadata
+        # Two-pass approach to get accurate page count
+        # First pass: Build to a temporary file to count pages
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        temp_path = temp_file.name
+        temp_file.close()
+        
+        temp_doc = SimpleDocTemplate(
+            temp_path,
+            pagesize=letter,
+            rightMargin=50,
+            leftMargin=50,
+            topMargin=100,
+            bottomMargin=80
+        )
+        
+        # Track page count during first pass
+        page_count = [0]  # Use list to allow modification in nested function
+        
+        def count_pages(canvas, doc):
+            page_count[0] = canvas.getPageNumber()
+        
+        # Build story for first pass
+        story = self.build_story()
+        
+        # Build temporary PDF to count pages
+        temp_doc.build(story, onFirstPage=count_pages, onLaterPages=count_pages)
+        
+        # Get the actual page count
+        self.total_pages = page_count[0]
+        print(f"Total pages detected: {self.total_pages}")
+        
+        # Clean up temporary file
+        try:
+            os.remove(temp_path)
+        except:
+            pass
+        
+        # Second pass: Build the actual PDF with correct page count
+        doc = SimpleDocTemplate(
+            self.output_path,
+            pagesize=letter,
+            rightMargin=50,
+            leftMargin=50,
+            topMargin=100,
+            bottomMargin=80
+        )
+        
         def add_header_footer(canvas, doc):
             # Set PDF metadata on the canvas
             canvas.setTitle(self.pdf_metadata.get('Title', ''))
@@ -515,22 +840,35 @@ class ReleaseNotesPDFGenerator:
             # Add header and footer
             self.create_header_footer(canvas, doc)
         
-        doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
+        # Rebuild story for second pass
+        story = self.build_story()
         
-        print(f"PDF generated successfully: {self.output_path}")
+        # Build the actual PDF
+        try:
+            doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
+            print(f"PDF generated successfully: {self.output_path}")
+        except Exception as e:
+            print(f"Error building PDF: {e}")
+            raise
 
 def main():
     """Main function to run the script."""
     # Get the directory of the script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Default file paths
-    yaml_file = os.path.join(script_dir, 'newsData.yaml')
-    output_file = os.path.join(script_dir, 'CCDI_Hub_Release_Notes.pdf')
+    # Default file paths - try site_announcement_log.yaml first, then newsData.yaml
+    yaml_file = os.path.join(script_dir, 'site_announcement_log.yaml')
+    if not os.path.exists(yaml_file):
+        # Fallback to legacy format
+        yaml_file = os.path.join(script_dir, 'newsData.yaml')
+    
+    output_file = os.path.join(script_dir, 'CCDC_Release_Notes.pdf')
     
     # Check if YAML file exists
     if not os.path.exists(yaml_file):
-        print(f"Error: YAML file not found at {yaml_file}")
+        print(f"Error: YAML file not found. Tried:")
+        print(f"  - {os.path.join(script_dir, 'site_announcement_log.yaml')}")
+        print(f"  - {os.path.join(script_dir, 'newsData.yaml')}")
         sys.exit(1)
     
     # Create PDF generator
