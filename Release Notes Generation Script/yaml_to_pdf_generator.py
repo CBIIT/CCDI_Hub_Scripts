@@ -380,6 +380,57 @@ class ReleaseNotesPDFGenerator:
             for nested_li in nested_ul.find_all('li', recursive=False):
                 nested_elements = self.process_list_item(nested_li, level + 1, processed_elements)
                 elements.extend(nested_elements)
+            
+            # Extract text that comes AFTER the nested ul (within the same li)
+            # This handles cases where there are additional items after third-level bullets
+            after_text_parts = []
+            found_nested_ul = False
+            for child in li.children:
+                if child == nested_ul:
+                    found_nested_ul = True
+                    continue
+                if found_nested_ul:
+                    # We're now processing content after the nested ul
+                    if hasattr(child, 'get_text'):
+                        text = child.get_text().strip()
+                        if text:
+                            after_text_parts.append(text)
+                    elif hasattr(child, 'string') and child.string and child.string.strip():
+                        after_text_parts.append(child.string.strip())
+                    elif hasattr(child, 'name') and child.name == 'p':
+                        # Extract text from p tag, preserving bold formatting
+                        p_html = str(child)
+                        p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                        p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                        p_html = ' '.join(p_html.split())
+                        text = p_html.strip()
+                        if text:
+                            after_text_parts.append(text)
+            
+            # Process any text that came after the nested ul
+            if after_text_parts:
+                after_text = ' '.join(after_text_parts).strip()
+                after_text = after_text.replace('&nbsp;', ' ').strip()
+                # Split by common separators to create separate items
+                # Look for patterns like "Updated resource description" followed by "Updated resource and contact"
+                # These are likely separate items that should be split
+                if after_text:
+                    # Try to split into separate items if there are multiple "Updated" statements
+                    # Split on patterns like "Updated" at the start of a new phrase
+                    items = re.split(r'(?=\bUpdated\b)', after_text)
+                    for item in items:
+                        item = item.strip()
+                        if item:
+                            # Clean up the text
+                            item = item.replace('•', '').replace('·', '').strip()
+                            if item:
+                                # Add as a second-level item (same level as the one with nested items)
+                                if level == 0:
+                                    elements.append(Paragraph(f"• {item}", self.styles['NestedListItem']))
+                                elif level == 1:
+                                    elements.append(Paragraph(f"• {item}", self.styles['NestedListItem']))
+                                else:
+                                    elements.append(Paragraph(f"• {item}", self.styles['DeeplyNestedListItem']))
         else:
             # Regular li without nested ul - extract text preserving bold formatting
             p_tag = li.find('p')
