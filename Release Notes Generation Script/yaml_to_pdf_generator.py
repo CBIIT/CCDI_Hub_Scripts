@@ -363,9 +363,6 @@ class ReleaseNotesPDFGenerator:
             if main_text:
                 # Clean up the text - remove any symbol characters that might be present
                 main_text = main_text.replace('•', '').replace('·', '').strip()
-                # Add colon if not present and it looks like a resource name (only for level 0)
-                if level == 0 and ':' not in main_text and not main_text.endswith('.') and not main_text.endswith(':'):
-                    main_text += ':'
                 
                 # Choose style based on level
                 if level == 0:
