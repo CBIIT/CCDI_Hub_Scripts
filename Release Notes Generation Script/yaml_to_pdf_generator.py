@@ -335,8 +335,10 @@ class ReleaseNotesPDFGenerator:
                 
                 # Convert <strong> to <b> for ReportLab
                 p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
-                # Remove other HTML tags but keep <b> tags
-                p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                # Convert <em> to <i> for ReportLab
+                p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
+                # Remove other HTML tags but keep <b> and <i> tags
+                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
                 # Clean up extra spaces and remove symbol characters
                 p_html = ' '.join(p_html.split())
                 p_html = p_html.replace('•', '').replace('·', '').strip()
@@ -395,10 +397,11 @@ class ReleaseNotesPDFGenerator:
                     elif hasattr(child, 'string') and child.string and child.string.strip():
                         after_text_parts.append(child.string.strip())
                     elif hasattr(child, 'name') and child.name == 'p':
-                        # Extract text from p tag, preserving bold formatting
+                        # Extract text from p tag, preserving bold and italic formatting
                         p_html = str(child)
                         p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
-                        p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                        p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
+                        p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
                         p_html = ' '.join(p_html.split())
                         text = p_html.strip()
                         if text:
@@ -429,17 +432,17 @@ class ReleaseNotesPDFGenerator:
                                 else:
                                     elements.append(Paragraph(f"• {item}", self.styles['DeeplyNestedListItem']))
         else:
-            # Regular li without nested ul - extract text preserving bold formatting
+            # Regular li without nested ul - extract text preserving bold and italic formatting
             p_tag = li.find('p')
             if p_tag:
-                # Get HTML and preserve <strong> tags
-                p_html = str(p_tag)
-                # Get HTML and preserve <strong> tags
+                # Get HTML and preserve <strong> and <i> tags
                 p_html = str(p_tag)
                 # Convert <strong> to <b> for ReportLab
                 p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
-                # Remove other HTML tags but keep <b> tags
-                p_html = re.sub(r'<(?!/?b>)[^>]+>', '', p_html)
+                # Convert <em> to <i> for ReportLab
+                p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
+                # Remove other HTML tags but keep <b> and <i> tags
+                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
                 # Clean up extra spaces
                 p_html = ' '.join(p_html.split())
                 text = p_html.strip()
@@ -506,9 +509,11 @@ class ReleaseNotesPDFGenerator:
                             elif hasattr(child, 'string') and child.string:
                                 text_parts.append(child.string.strip())
                         text = ' '.join(text_parts).strip()
+                        p_html = None
                     else:
-                        # No nested ul - get all text including links
-                        # Use get_text() which includes link text, but we'll filter out list content
+                        # No nested ul - preserve HTML formatting (italic, bold, links)
+                        # Get the HTML content and convert to ReportLab format
+                        p_html = str(element)
                         text = element.get_text().strip()
                     
                     # Clean up - remove any text that looks like it's from a list
@@ -524,42 +529,43 @@ class ReleaseNotesPDFGenerator:
                             continue
                     
                     if text:
+                        # Preserve HTML formatting while processing
+                        # Start with HTML content if available, otherwise use plain text
+                        if p_html:
+                            # Convert HTML to ReportLab format
+                            # Convert <strong> and <b> to <b> for ReportLab
+                            final_text = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                            # Convert <em> to <i> for ReportLab
+                            final_text = final_text.replace('<em>', '<i>').replace('</em>', '</i>')
+                        else:
+                            final_text = text
+                        
                         # Convert links to clickable hyperlinks
                         # Find all <a> tags in the paragraph and convert them
                         links = element.find_all('a', recursive=True)
-                        final_text = text
                         
                         if links:
-                            # Build text with hyperlinks by replacing link text with ReportLab link format
-                            # Start with the original text
-                            final_text = text
-                            
-                            # Replace each link in reverse order to preserve positions
+                            # Process links in the HTML
                             for link in reversed(links):
                                 href = link.get('href', '')
                                 link_text = link.get_text().strip()
                                 if href and link_text:
                                     # Create ReportLab link format (blue, underlined)
                                     reportlab_link = f'<link href="{href}" color="blue"><u>{link_text}</u></link>'
-                                    # Replace the link text in the final text
-                                    # Use the link text as the replacement key
-                                    if link_text in final_text:
-                                        # Replace and remove any trailing space after the link
-                                        final_text = final_text.replace(link_text, reportlab_link, 1)
-                                        # Remove space immediately after the link
-                                        final_text = final_text.replace(reportlab_link + ' ', reportlab_link)
-                                    else:
-                                        # If exact match not found, try to find and replace
-                                        # Get the full HTML of the link to find its position
-                                        link_html = str(link)
-                                        if link_html in str(element):
-                                            # Replace with ReportLab link format
-                                            final_text = final_text.replace(link_text, reportlab_link)
-                                            # Remove space immediately after the link
-                                            final_text = final_text.replace(reportlab_link + ' ', reportlab_link)
+                                    # Replace the <a> tag with ReportLab link format
+                                    link_html = str(link)
+                                    if link_html in final_text:
+                                        final_text = final_text.replace(link_html, reportlab_link, 1)
                             
                             # Clean up any remaining spaces after links
                             final_text = re.sub(r'(</link>)\s+', r'\1', final_text)
+                        
+                        # Remove remaining HTML tags except <b>, <i>, and <link>
+                        # Keep <b>, <i>, and <link> tags, remove everything else
+                        if p_html:
+                            final_text = re.sub(r'<(?!/?(?:b|i|link|u)[\s>])[^>]+>', '', final_text)
+                            # Clean up extra whitespace but preserve structure
+                            final_text = re.sub(r'\s+', ' ', final_text).strip()
                         
                         # Check for inline styles
                         style = element.get('style', '')
