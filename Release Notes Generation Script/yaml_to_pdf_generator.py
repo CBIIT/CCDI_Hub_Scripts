@@ -338,25 +338,45 @@ class ReleaseNotesPDFGenerator:
                 # Convert <em> to <i> for ReportLab
                 p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
                 # Remove other HTML tags but keep <b> and <i> tags
-                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
+                # Match tags that are NOT <b>, </b>, <i>, or </i>
+                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
                 # Clean up extra spaces and remove symbol characters
-                p_html = ' '.join(p_html.split())
+                p_html = re.sub(r'\s+', ' ', p_html)
                 p_html = p_html.replace('•', '').replace('·', '').strip()
                 
                 main_text = p_html
             else:
-                # Fallback: extract text without HTML
-                main_text_parts = []
-                for child in li.children:
-                    if child == nested_ul:
-                        break
-                    if hasattr(child, 'get_text'):
-                        text = child.get_text().strip()
-                        if text:
-                            main_text_parts.append(text)
-                    elif hasattr(child, 'string') and child.string and child.string.strip():
-                        main_text_parts.append(child.string.strip())
-                main_text = ' '.join(main_text_parts).strip()
+                # Fallback: extract text preserving formatting from direct children
+                # Get HTML content before the nested ul
+                li_html = str(li)
+                nested_ul_html = str(nested_ul)
+                # Find position of nested ul and extract everything before it
+                ul_pos = li_html.find(nested_ul_html)
+                if ul_pos > 0:
+                    main_text_html = li_html[:ul_pos]
+                    # Convert <strong> to <b> for ReportLab
+                    main_text_html = main_text_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                    # Convert <em> to <i> for ReportLab
+                    main_text_html = main_text_html.replace('<em>', '<i>').replace('</em>', '</i>')
+                    # Remove <li> tag and other HTML tags but keep <b> and <i> tags
+                    main_text_html = re.sub(r'</?li[^>]*>', '', main_text_html)
+                    main_text_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', main_text_html)
+                    # Clean up extra spaces
+                    main_text_html = re.sub(r'\s+', ' ', main_text_html)
+                    main_text = main_text_html.strip()
+                else:
+                    # Fallback to plain text extraction
+                    main_text_parts = []
+                    for child in li.children:
+                        if child == nested_ul:
+                            break
+                        if hasattr(child, 'get_text'):
+                            text = child.get_text().strip()
+                            if text:
+                                main_text_parts.append(text)
+                        elif hasattr(child, 'string') and child.string and child.string.strip():
+                            main_text_parts.append(child.string.strip())
+                    main_text = ' '.join(main_text_parts).strip()
             
             # Clean up extra spaces and remove empty content
             main_text = ' '.join(main_text.split())
@@ -401,8 +421,8 @@ class ReleaseNotesPDFGenerator:
                         p_html = str(child)
                         p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                         p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                        p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
-                        p_html = ' '.join(p_html.split())
+                        p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
+                        p_html = re.sub(r'\s+', ' ', p_html)
                         text = p_html.strip()
                         if text:
                             after_text_parts.append(text)
@@ -442,13 +462,34 @@ class ReleaseNotesPDFGenerator:
                 # Convert <em> to <i> for ReportLab
                 p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
                 # Remove other HTML tags but keep <b> and <i> tags
-                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]+>', '', p_html)
+                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
                 # Clean up extra spaces
-                p_html = ' '.join(p_html.split())
+                p_html = re.sub(r'\s+', ' ', p_html)
                 text = p_html.strip()
             else:
-                # Fallback: extract text
-                text = li.get_text().strip()
+                # Fallback: check if li has direct children with formatting (like <span> tags)
+                # Get the HTML content of the li element itself
+                li_html = str(li)
+                # Remove any nested <ul> tags first
+                nested_ul = li.find('ul')
+                if nested_ul:
+                    nested_ul_html = str(nested_ul)
+                    li_html = li_html.replace(nested_ul_html, '')
+                
+                # Convert <strong> to <b> for ReportLab
+                li_html = li_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                # Convert <em> to <i> for ReportLab
+                li_html = li_html.replace('<em>', '<i>').replace('</em>', '</i>')
+                # Remove the <li> tag itself and other HTML tags but keep <b> and <i> tags
+                li_html = re.sub(r'</?li[^>]*>', '', li_html)  # Remove <li> tags
+                li_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', li_html)  # Remove other tags except <b> and <i>
+                # Clean up extra spaces
+                li_html = re.sub(r'\s+', ' ', li_html)
+                text = li_html.strip()
+                
+                # If we still don't have text, fall back to plain text extraction
+                if not text:
+                    text = li.get_text().strip()
             
             if text:
                 # Choose style based on level
