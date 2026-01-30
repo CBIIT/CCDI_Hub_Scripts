@@ -537,20 +537,34 @@ class ReleaseNotesPDFGenerator:
                     # Check if paragraph contains a nested ul - if so, exclude the ul content
                     nested_ul = element.find('ul')
                     if nested_ul:
-                        # Extract text only from elements before the ul
+                        # Extract HTML content (preserving formatting) from elements before the ul
+                        # Build HTML from child elements before the ul to preserve formatting
+                        html_parts = []
                         text_parts = []
                         for child in element.children:
                             if child == nested_ul:
                                 break  # Stop at nested ul
-                            # Get text from this child, including links
+                            # Get HTML representation of this child to preserve formatting
+                            if hasattr(child, '__str__'):
+                                child_html = str(child)
+                                if child_html.strip():
+                                    html_parts.append(child_html)
+                            # Also get text for validation
                             if hasattr(child, 'get_text'):
                                 child_text = child.get_text().strip()
                                 if child_text:
                                     text_parts.append(child_text)
                             elif hasattr(child, 'string') and child.string:
                                 text_parts.append(child.string.strip())
-                        text = ' '.join(text_parts).strip()
-                        p_html = None
+                        
+                        if html_parts:
+                            # Combine HTML parts and wrap in a p tag structure for processing
+                            p_html = '<p>' + ' '.join(html_parts) + '</p>'
+                            text = ' '.join(text_parts).strip()
+                        else:
+                            # Fallback: use text only
+                            text = ' '.join(text_parts).strip()
+                            p_html = None
                     else:
                         # No nested ul - preserve HTML formatting (italic, bold, links)
                         # Get the HTML content and convert to ReportLab format
