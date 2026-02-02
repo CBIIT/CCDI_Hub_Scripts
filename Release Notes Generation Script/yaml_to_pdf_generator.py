@@ -628,15 +628,31 @@ class ReleaseNotesPDFGenerator:
                     
                     # Clean up - remove any text that looks like it's from a list
                     # If text contains multiple resource names or dataset updates, it's probably duplicated content
+                    # BUT: Skip this check for introductory paragraphs (those that come before the first heading)
                     if text:
-                        # Check if this looks like duplicated list content
-                        resource_keywords = ['Childhood Cancer Data Initiative', 'dbGaP', 'GENIE', 'Kids First Data Resource', 
-                                            'Updated dataset', 'Moved dataset', 'Dataset', 'was replaced']
-                        keyword_count = sum(1 for keyword in resource_keywords if keyword in text)
-                        # If it has multiple keywords, it's likely duplicated list content - skip it
-                        if keyword_count > 2:
-                            processed_elements.add(id(element))
-                            continue
+                        # Check if this paragraph comes before any heading in the document
+                        # Get all headings in document order
+                        all_headings = soup.find_all(['h1', 'h2', 'h3'])
+                        is_first_paragraph = True
+                        if all_headings:
+                            # Check if this paragraph appears before the first heading
+                            first_heading = all_headings[0]
+                            # Get all elements in document order
+                            all_elements = soup.find_all(['p', 'h1', 'h2', 'h3'])
+                            element_index = all_elements.index(element) if element in all_elements else -1
+                            first_heading_index = all_elements.index(first_heading) if first_heading in all_elements else -1
+                            if element_index >= 0 and first_heading_index >= 0:
+                                is_first_paragraph = element_index < first_heading_index
+                        
+                        # Only skip if it's NOT the first paragraph and has multiple keywords
+                        if not is_first_paragraph:
+                            resource_keywords = ['Childhood Cancer Data Initiative', 'dbGaP', 'GENIE', 'Kids First Data Resource', 
+                                                'Updated dataset', 'Moved dataset', 'Dataset', 'was replaced']
+                            keyword_count = sum(1 for keyword in resource_keywords if keyword in text)
+                            # If it has multiple keywords, it's likely duplicated list content - skip it
+                            if keyword_count > 2:
+                                processed_elements.add(id(element))
+                                continue
                     
                     if text:
                         # Preserve HTML formatting while processing
