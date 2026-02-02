@@ -293,6 +293,43 @@ class ReleaseNotesPDFGenerator:
             print(f"Error loading YAML file: {e}")
             sys.exit(1)
 
+    def convert_links_in_html(self, html_content, element):
+        """
+        Convert <a> tags in HTML content to ReportLab link format.
+        
+        Args:
+            html_content (str): HTML content string
+            element: BeautifulSoup element to search for links
+            
+        Returns:
+            str: HTML content with links converted to ReportLab format
+        """
+        if not html_content or not element:
+            return html_content
+        
+        # Find all <a> tags in the element
+        links = element.find_all('a', recursive=True)
+        
+        if links:
+            # Process links in reverse order to maintain positions
+            for link in reversed(links):
+                href = link.get('href', '')
+                link_text = link.get_text().strip()
+                if href and link_text:
+                    # Create ReportLab link format (blue, underlined)
+                    # Wrap link text in font tag for blue color, and underline for styling
+                    # The link tag must be outermost for clickability
+                    reportlab_link = f'<link href="{href}"><font color="blue"><u>{link_text}</u></font></link>'
+                    # Replace the <a> tag with ReportLab link format
+                    link_html = str(link)
+                    if link_html in html_content:
+                        html_content = html_content.replace(link_html, reportlab_link, 1)
+            
+            # Clean up any remaining spaces after links
+            html_content = re.sub(r'(</link>)\s+', r'\1', html_content)
+        
+        return html_content
+
     def process_list_item(self, li, level=0, processed_elements=None):
         """
         Recursively process a list item and its nested lists.
@@ -333,13 +370,16 @@ class ReleaseNotesPDFGenerator:
                 nested_ul_html = str(nested_ul)
                 p_html = p_html.replace(nested_ul_html, '')
                 
+                # Convert links first, before removing other tags
+                p_html = self.convert_links_in_html(p_html, p_tag)
+                
                 # Convert <strong> to <b> for ReportLab
                 p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                 # Convert <em> to <i> for ReportLab
                 p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                # Remove other HTML tags but keep <b> and <i> tags
-                # Match tags that are NOT <b>, </b>, <i>, or </i>
-                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
+                # Remove other HTML tags but keep <b>, <i>, <link>, <font>, and <u> tags
+                # Match tags that are NOT <b>, </b>, <i>, </i>, <link>, </link>, <u>, </u>, <font>, or </font>
+                p_html = re.sub(r'<(?!/?(?:b|i|link|u|font)[\s>])[^>]+>', '', p_html)
                 # Clean up extra spaces and remove symbol characters
                 p_html = re.sub(r'\s+', ' ', p_html)
                 p_html = p_html.replace('•', '').replace('·', '').strip()
@@ -354,13 +394,17 @@ class ReleaseNotesPDFGenerator:
                 ul_pos = li_html.find(nested_ul_html)
                 if ul_pos > 0:
                     main_text_html = li_html[:ul_pos]
+                    
+                    # Convert links first, before removing other tags
+                    main_text_html = self.convert_links_in_html(main_text_html, li)
+                    
                     # Convert <strong> to <b> for ReportLab
                     main_text_html = main_text_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                     # Convert <em> to <i> for ReportLab
                     main_text_html = main_text_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                    # Remove <li> tag and other HTML tags but keep <b> and <i> tags
+                    # Remove <li> tag and other HTML tags but keep <b>, <i>, <link>, <font>, and <u> tags
                     main_text_html = re.sub(r'</?li[^>]*>', '', main_text_html)
-                    main_text_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', main_text_html)
+                    main_text_html = re.sub(r'<(?!/?(?:b|i|link|u|font)[\s>])[^>]+>', '', main_text_html)
                     # Clean up extra spaces
                     main_text_html = re.sub(r'\s+', ' ', main_text_html)
                     main_text = main_text_html.strip()
@@ -419,9 +463,13 @@ class ReleaseNotesPDFGenerator:
                     elif hasattr(child, 'name') and child.name == 'p':
                         # Extract text from p tag, preserving bold and italic formatting
                         p_html = str(child)
+                        
+                        # Convert links first, before removing other tags
+                        p_html = self.convert_links_in_html(p_html, child)
+                        
                         p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                         p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                        p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
+                        p_html = re.sub(r'<(?!/?(?:b|i|link|u|font)[\s>])[^>]+>', '', p_html)
                         p_html = re.sub(r'\s+', ' ', p_html)
                         text = p_html.strip()
                         if text:
@@ -457,12 +505,16 @@ class ReleaseNotesPDFGenerator:
             if p_tag:
                 # Get HTML and preserve <strong> and <i> tags
                 p_html = str(p_tag)
+                
+                # Convert links first, before removing other tags
+                p_html = self.convert_links_in_html(p_html, p_tag)
+                
                 # Convert <strong> to <b> for ReportLab
                 p_html = p_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                 # Convert <em> to <i> for ReportLab
                 p_html = p_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                # Remove other HTML tags but keep <b> and <i> tags
-                p_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', p_html)
+                # Remove other HTML tags but keep <b>, <i>, <link>, and <u> tags
+                p_html = re.sub(r'<(?!/?(?:b|i|link|u)[\s>])[^>]+>', '', p_html)
                 # Clean up extra spaces
                 p_html = re.sub(r'\s+', ' ', p_html)
                 text = p_html.strip()
@@ -476,13 +528,16 @@ class ReleaseNotesPDFGenerator:
                     nested_ul_html = str(nested_ul)
                     li_html = li_html.replace(nested_ul_html, '')
                 
+                # Convert links first, before removing other tags
+                li_html = self.convert_links_in_html(li_html, li)
+                
                 # Convert <strong> to <b> for ReportLab
                 li_html = li_html.replace('<strong>', '<b>').replace('</strong>', '</b>')
                 # Convert <em> to <i> for ReportLab
                 li_html = li_html.replace('<em>', '<i>').replace('</em>', '</i>')
-                # Remove the <li> tag itself and other HTML tags but keep <b> and <i> tags
+                # Remove the <li> tag itself and other HTML tags but keep <b>, <i>, <link>, <font>, and <u> tags
                 li_html = re.sub(r'</?li[^>]*>', '', li_html)  # Remove <li> tags
-                li_html = re.sub(r'<(?!/?(?:b|i)>)[^>]*>', '', li_html)  # Remove other tags except <b> and <i>
+                li_html = re.sub(r'<(?!/?(?:b|i|link|u|font)[\s>])[^>]+>', '', li_html)  # Remove other tags except <b>, <i>, <link>, <font>, and <u>
                 # Clean up extra spaces
                 li_html = re.sub(r'\s+', ' ', li_html)
                 text = li_html.strip()
@@ -606,7 +661,9 @@ class ReleaseNotesPDFGenerator:
                                 link_text = link.get_text().strip()
                                 if href and link_text:
                                     # Create ReportLab link format (blue, underlined)
-                                    reportlab_link = f'<link href="{href}" color="blue"><u>{link_text}</u></link>'
+                                    # Wrap link text in font tag for blue color, and underline for styling
+                                    # The link tag must be outermost for clickability
+                                    reportlab_link = f'<link href="{href}"><font color="blue"><u>{link_text}</u></font></link>'
                                     # Replace the <a> tag with ReportLab link format
                                     link_html = str(link)
                                     if link_html in final_text:
@@ -615,10 +672,10 @@ class ReleaseNotesPDFGenerator:
                             # Clean up any remaining spaces after links
                             final_text = re.sub(r'(</link>)\s+', r'\1', final_text)
                         
-                        # Remove remaining HTML tags except <b>, <i>, and <link>
-                        # Keep <b>, <i>, and <link> tags, remove everything else
+                        # Remove remaining HTML tags except <b>, <i>, <link>, <font>, and <u>
+                        # Keep <b>, <i>, <link>, <font>, and <u> tags, remove everything else
                         if p_html:
-                            final_text = re.sub(r'<(?!/?(?:b|i|link|u)[\s>])[^>]+>', '', final_text)
+                            final_text = re.sub(r'<(?!/?(?:b|i|link|u|font)[\s>])[^>]+>', '', final_text)
                             # Clean up extra whitespace but preserve structure
                             final_text = re.sub(r'\s+', ' ', final_text).strip()
                         
