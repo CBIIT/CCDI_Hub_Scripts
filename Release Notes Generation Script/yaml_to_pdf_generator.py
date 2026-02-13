@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-YAML to PDF Converter for CCDI Hub Release Notes
+YAML to PDF Converter for CCDC Release Notes
 
 This script reads release notes from a YAML file and converts them into a 
 professionally formatted PDF document with NIH branding and styling.
@@ -73,10 +73,10 @@ class ReleaseNotesPDFGenerator:
         
         # Set default PDF metadata if not provided
         self.pdf_metadata = pdf_metadata or {
-            'Title': 'CCDI Hub Release Notes',
+            'Title': 'CCDC Release Notes',
             'Author': 'National Cancer Institute',
-            'Subject': 'CCDI Hub Release Notes and Updates',
-            'Creator': 'CCDI Hub Release Notes Generator',
+            'Subject': 'CCDC Release Notes and Updates',
+            'Creator': 'CCDC Release Notes Generator',
             'Producer': 'ReportLab PDF Library',
         }
 
