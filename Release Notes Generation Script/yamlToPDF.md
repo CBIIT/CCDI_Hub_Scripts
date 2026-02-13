@@ -18,7 +18,7 @@ You need to provide the following files in your project directory:
    - Must include a `releaseNotesList` section with release note entries
 
 2. **SVG Logo File** (`Portal_Logo.svg`)
-   - NIH/CCDI Hub logo in SVG format
+   - NIH/CCDC logo in SVG format
    - Will be automatically converted and used in the PDF header
    - Should maintain proper aspect ratio (original: 517x55 pixels)
 
@@ -56,7 +56,7 @@ releaseNotesList:
 ### YAML Field Requirements
 
 - **id**: Unique identifier (format: `hub_release_MMDDYYYY`)
-- **title**: Release title (e.g., "CCDI Hub Release 2.8.0")
+- **title**: Release title (e.g., "CCDC Release 2.8.0")
 - **version**: Version number (e.g., "v2.8.0")
 - **date**: Release date in "Month Date, Year" format
 - **slug**: Brief one-line description
