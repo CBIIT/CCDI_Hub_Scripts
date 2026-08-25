@@ -1,8 +1,8 @@
 # PDF Generation
 reportlab>=4.0.0
 
-# YAML parsing
-PyYAML>=6.0
+# Markdown parsing
+Markdown>=3.6
 
 # HTML parsing
 beautifulsoup4>=4.12.0

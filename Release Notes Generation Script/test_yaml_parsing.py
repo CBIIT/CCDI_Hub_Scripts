@@ -1,117 +1,159 @@
 #!/usr/bin/env python3
+"""Tests for parsing the remote site announcement Markdown format."""
+
+import importlib.util
+from pathlib import Path
+import unittest
+
+
+MODULE_PATH = Path(__file__).with_name("yaml_to_pdf_generator.py")
+SPEC = importlib.util.spec_from_file_location("release_notes_generator", MODULE_PATH)
+release_notes_generator = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(release_notes_generator)
+
+
+SAMPLE_MARKDOWN = """\
+# First release
+### August 31, 2026 | Release Notes
+
+Intro with **bold text** and a [link](https://example.org).
+
+### Updates
+
+- First item
+  - Nested item
+
+| Property | Value |
+| --- | --- |
+| id | catalog_release_08312026 |
+| version | v1.5.10 |
+| slug | A useful summary |
+| contentType | Clinical,Imaging |
+
+# Earlier release
+### June 10, 2026 | Release Notes
+
+Earlier content.
+
+| Property | Value |
+| --- | --- |
+| version | v1.5.9 |
 """
-Simple test script to verify YAML parsing from site_announcement_log.yaml
-This doesn't require PDF generation libraries.
+
+SUMMARY_MARKDOWN = """\
+# A late summer bloom of pediatric data resources
+### August 31, 2026 | Release Notes
+
+#### v1.5.10 Summary
+
+- **36th** Release
+- **541** Datasets
+- **164** Resources
+  - **25** Analytical Tools
+  - **9** Biorepositories
+
+| Property | Value |
+| --- | --- |
+| version | v1.5.10 |
 """
 
-import yaml
-import os
-from datetime import datetime
+LOOSE_NESTED_LIST_MARKDOWN = """\
+# New resources
+### August 31, 2026 | Release Notes
 
-def convert_date_format(date_str):
-    """Convert date from YYYY-MM-DD format to "Month Date, Year" format."""
-    try:
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        return date_obj.strftime('%B %d, %Y')
-    except Exception as e:
-        print(f"Warning: Could not parse date '{date_str}': {e}")
-        return date_str
+### Data Updates
 
-def load_yaml_data(yaml_file_path):
-    """Load and parse the YAML file in site_announcement_log.yaml format."""
-    try:
-        with open(yaml_file_path, 'r', encoding='utf-8') as file:
-            data = yaml.safe_load(file)
-        
-        release_notes = []
-        
-        if isinstance(data, list):
-            # New format: site_announcement_log.yaml format
-            # Structure: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
-            
-            for entry in data:
-                # Skip non-list entries and entries that don't have enough fields
-                if not isinstance(entry, list) or len(entry) < 7:
-                    continue
-                
-                # Skip if it's the header row (first item is "Type")
-                first_item = str(entry[0]).strip() if entry[0] else ""
-                if first_item == "Type":
-                    continue
-                
-                # Extract fields: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
-                type_val = entry[0] if len(entry) > 0 else ""
-                title = entry[1] if len(entry) > 1 else ""
-                version = entry[2] if len(entry) > 2 else ""
-                date_yyyy_mm_dd = entry[3] if len(entry) > 3 else ""
-                data_type = entry[4] if len(entry) > 4 else ""
-                highlight = entry[5] if len(entry) > 5 else ""
-                full_text = entry[6] if len(entry) > 6 else ""
-                
-                # Convert date format from YYYY-MM-DD to "Month Date, Year"
-                date_formatted = convert_date_format(date_yyyy_mm_dd) if date_yyyy_mm_dd else "Unknown Date"
-                
-                # Create release note dictionary
-                release_note = {
-                    'type': type_val,
-                    'title': title,
-                    'version': version,
-                    'date': date_formatted,
-                    'dataType': data_type,
-                    'slug': highlight,
-                    'fullText': full_text[:100] + "..." if len(full_text) > 100 else full_text,  # Truncate for display
-                    'img': 'updateImgReleaseNotes'
-                }
-                
-                release_notes.append(release_note)
-            
-            print(f"✓ Successfully loaded {len(release_notes)} release notes entries from site_announcement_log.yaml format\n")
-            
-            # Display first few entries
-            print("Sample entries:")
-            print("=" * 80)
-            for i, note in enumerate(release_notes[:3], 1):
-                print(f"\nEntry {i}:")
-                print(f"  Title: {note['title']}")
-                print(f"  Version: {note['version']}")
-                print(f"  Date: {note['date']}")
-                print(f"  Data Type: {note['dataType']}")
-                print(f"  Highlight: {note['slug']}")
-                print(f"  Full Text (preview): {note['fullText'][:150]}...")
-            
-            if len(release_notes) > 3:
-                print(f"\n... and {len(release_notes) - 3} more entries")
-            
-            return release_notes
-            
-        elif isinstance(data, dict) and 'releaseNotesList' in data:
-            # Old format: releaseNotesList structure
-            release_notes = data['releaseNotesList']
-            print(f"✓ Loaded {len(release_notes)} release notes entries from releaseNotesList format")
-            return release_notes
-        else:
-            raise ValueError("YAML file format not recognized. Expected either a list of lists (site_announcement_log.yaml format) or a dict with 'releaseNotesList' key.")
-            
-    except Exception as e:
-        print(f"✗ Error loading YAML file: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+- African Cancer Registry Network
+
+  - **New Dataset** - AFCRN Database
+- Alaska Native Tumor Registry
+
+  - **New Dataset** - Cancer in Alaska Native People
+
+| Property | Value |
+| --- | --- |
+| version | v1.5.10 |
+"""
+
+
+class MarkdownParsingTests(unittest.TestCase):
+    def setUp(self):
+        self.generator = release_notes_generator.ReleaseNotesPDFGenerator()
+
+    def test_parses_releases_and_metadata(self):
+        releases = self.generator.parse_markdown_releases(SAMPLE_MARKDOWN)
+
+        self.assertEqual(len(releases), 2)
+        self.assertEqual(releases[0]["title"], "First release")
+        self.assertEqual(releases[0]["date"], "August 31, 2026")
+        self.assertEqual(releases[0]["version"], "v1.5.10")
+        self.assertEqual(releases[0]["slug"], "A useful summary")
+        self.assertEqual(releases[0]["dataType"], "Clinical,Imaging")
+        self.assertEqual(releases[1]["version"], "v1.5.9")
+
+    def test_converts_markdown_body_to_html_and_removes_property_table(self):
+        release = self.generator.parse_markdown_releases(SAMPLE_MARKDOWN)[0]
+
+        self.assertIn("<strong>bold text</strong>", release["fullText"])
+        self.assertIn('<a href="https://example.org">link</a>', release["fullText"])
+        self.assertIn("<ul>", release["fullText"])
+        self.assertNotIn("Property", release["fullText"])
+        self.assertNotIn("catalog_release_08312026", release["fullText"])
+
+    def test_preserves_summary_heading_emphasis_and_list_levels(self):
+        release = self.generator.parse_markdown_releases(SUMMARY_MARKDOWN)[0]
+        elements = self.generator.parse_html_content(release["fullText"])
+
+        self.assertEqual(elements[0].style.name, "SubsectionHeader")
+        self.assertEqual(elements[0].text, "v1.5.10 Summary")
+
+        list_items = elements[1:]
+        self.assertEqual(
+            [item.style.name for item in list_items],
+            [
+                "ListItem",
+                "ListItem",
+                "ListItem",
+                "NestedListItem",
+                "NestedListItem",
+            ],
+        )
+        self.assertEqual(
+            [item.bulletText for item in list_items],
+            ["•", "•", "•", "°", "°"],
+        )
+        self.assertEqual(list_items[2].text, "<b>164</b> Resources")
+        self.assertEqual(list_items[3].text, "<b>25</b> Analytical Tools")
+        self.assertLess(
+            list_items[2].style.leftIndent,
+            list_items[3].style.leftIndent,
+        )
+
+    def test_loose_nested_lists_return_to_top_level_for_each_parent(self):
+        release = self.generator.parse_markdown_releases(
+            LOOSE_NESTED_LIST_MARKDOWN
+        )[0]
+        elements = self.generator.parse_html_content(release["fullText"])
+        list_items = [
+            element
+            for element in elements
+            if element.style.name in {"ListItem", "NestedListItem"}
+        ]
+
+        self.assertEqual(
+            [item.style.name for item in list_items],
+            ["ListItem", "NestedListItem", "ListItem", "NestedListItem"],
+        )
+        self.assertEqual(
+            [item.text for item in list_items],
+            [
+                "African Cancer Registry Network",
+                "<b>New Dataset</b> - AFCRN Database",
+                "Alaska Native Tumor Registry",
+                "<b>New Dataset</b> - Cancer in Alaska Native People",
+            ],
+        )
+
 
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    yaml_file = os.path.join(script_dir, 'site_announcement_log.yaml')
-    
-    if not os.path.exists(yaml_file):
-        print(f"✗ Error: YAML file not found at {yaml_file}")
-        exit(1)
-    
-    print(f"Reading from: {yaml_file}\n")
-    release_notes = load_yaml_data(yaml_file)
-    
-    if release_notes:
-        print(f"\n✓ Success! Parsed {len(release_notes)} release notes successfully.")
-    else:
-        print("\n✗ Failed to parse release notes.")
-        exit(1)
-
+    unittest.main()

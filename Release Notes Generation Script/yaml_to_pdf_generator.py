@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-YAML to PDF Converter for CCDC Release Notes
+Markdown to PDF Converter for CCDC Release Notes
 
-This script reads release notes from a YAML file and converts them into a 
+This script downloads release notes from the CCDC static-content repository
+and converts them into a
 professionally formatted PDF document with NIH branding and styling.
 
 Features:
-- Converts YAML release notes to PDF format
+- Downloads and converts Markdown release notes to PDF format
 - Includes NIH branding and proper formatting
-- Handles HTML content from YAML fullText fields
+- Handles Markdown headings, lists, emphasis, and links
 - Professional layout with headers, sections, and styling
 - Page numbering with total page count
 - SVG logo support with proper aspect ratio maintenance
@@ -18,23 +19,22 @@ Usage:
     python3 yaml_to_pdf_generator.py
 
 Requirements:
-    - site_announcement_log.yaml file in the same directory (or newsData.yaml for legacy format)
+    - Internet access to download site_announcement_log.md
     - CCDC_Logo.svg file (optional, for logo display)
 """
 
-import yaml
 import os
-import sys
-from datetime import datetime
-from io import BytesIO
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+import markdown
 
 # PDF generation libraries
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import Color, HexColor
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle
-from reportlab.platypus.tableofcontents import TableOfContents
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -49,13 +49,19 @@ from reportlab.graphics import renderPDF
 from reportlab.graphics.shapes import Drawing
 import io
 
+DEFAULT_ANNOUNCEMENT_URL = (
+    "https://raw.githubusercontent.com/CBIIT/CCDC_Static_Contents/"
+    "dev/site_announcement_log.md"
+)
+
+
 class ReleaseNotesPDFGenerator:
-    def __init__(self, yaml_file_path, output_path=None, pdf_metadata=None):
+    def __init__(self, markdown_url=DEFAULT_ANNOUNCEMENT_URL, output_path=None, pdf_metadata=None):
         """
-        Initialize the PDF generator with YAML file path.
+        Initialize the PDF generator with a Markdown URL.
         
         Args:
-            yaml_file_path (str): Path to the YAML file containing release notes
+            markdown_url (str): URL of the Markdown release notes
             output_path (str): Path for the output PDF file (optional)
             pdf_metadata (dict): PDF metadata dictionary with keys:
                 - Title: PDF title
@@ -64,7 +70,7 @@ class ReleaseNotesPDFGenerator:
                 - Creator: Content creator
                 - Producer: PDF producer (optional, defaults to 'ReportLab PDF Library')
         """
-        self.yaml_file_path = yaml_file_path
+        self.markdown_url = markdown_url
         self.output_path = output_path or "CCDC_Release_Notes.pdf"
         self.release_notes = []
         self.total_pages = 0
@@ -177,7 +183,8 @@ class ReleaseNotesPDFGenerator:
             alignment=TA_LEFT,
             fontName='Helvetica',
             leftIndent=40,
-            bulletIndent=30
+            bulletIndent=30,
+            bulletFontName='Symbol'
         ))
         
         # Deeply nested list item style (for third level and beyond)
@@ -213,85 +220,117 @@ class ReleaseNotesPDFGenerator:
             fontName='Helvetica'
         ))
 
-    def convert_date_format(self, date_str):
-        """
-        Convert date from YYYY-MM-DD format to "Month Date, Year" format.
-        
-        Args:
-            date_str (str): Date in YYYY-MM-DD format
-            
-        Returns:
-            str: Date in "Month Date, Year" format
-        """
+    def load_markdown_data(self):
+        """Download and parse the remote site announcement Markdown file."""
         try:
-            # Parse the date
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            # Format as "Month Date, Year"
-            return date_obj.strftime('%B %d, %Y')
-        except Exception as e:
-            print(f"Warning: Could not parse date '{date_str}': {e}")
-            return date_str
-    
-    def load_yaml_data(self):
-        """Load and parse the YAML file in site_announcement_log.yaml format."""
-        try:
-            with open(self.yaml_file_path, 'r', encoding='utf-8') as file:
-                data = yaml.safe_load(file)
-            
-            # Check if it's the new format (list of lists) or old format (dict with releaseNotesList)
-            if isinstance(data, list):
-                # New format: site_announcement_log.yaml format
-                # Structure: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
-                self.release_notes = []
-                
-                for entry in data:
-                    # Skip non-list entries and entries that don't have enough fields
-                    if not isinstance(entry, list) or len(entry) < 7:
-                        continue
-                    
-                    # Skip if it's the header row (first item is "Type")
-                    first_item = str(entry[0]).strip() if entry[0] else ""
-                    if first_item == "Type":
-                        continue
-                    
-                    # Extract fields: [Type, Title, Version, Date, Data Type, Highlight, Full Text]
-                    type_val = entry[0] if len(entry) > 0 else ""
-                    title = entry[1] if len(entry) > 1 else ""
-                    version = entry[2] if len(entry) > 2 else ""
-                    date_yyyy_mm_dd = entry[3] if len(entry) > 3 else ""
-                    data_type = entry[4] if len(entry) > 4 else ""
-                    highlight = entry[5] if len(entry) > 5 else ""
-                    full_text = entry[6] if len(entry) > 6 else ""
-                    
-                    # Convert date format from YYYY-MM-DD to "Month Date, Year"
-                    date_formatted = self.convert_date_format(date_yyyy_mm_dd) if date_yyyy_mm_dd else "Unknown Date"
-                    
-                    # Create release note dictionary
-                    release_note = {
-                        'type': type_val,
-                        'title': title,
-                        'version': version,
-                        'date': date_formatted,
-                        'dataType': data_type,
-                        'slug': highlight,
-                        'fullText': full_text,
-                        'img': 'updateImgReleaseNotes'
-                    }
-                    
-                    self.release_notes.append(release_note)
-                
-                print(f"Loaded {len(self.release_notes)} release notes entries from site_announcement_log.yaml format")
-                
-            elif isinstance(data, dict) and 'releaseNotesList' in data:
-                # Old format: releaseNotesList structure
-                self.release_notes = data['releaseNotesList']
-                print(f"Loaded {len(self.release_notes)} release notes entries from releaseNotesList format")
-            else:
-                raise ValueError("YAML file format not recognized. Expected either a list of lists (site_announcement_log.yaml format) or a dict with 'releaseNotesList' key.")
-                
-        except Exception as e:
-            print(f"Error loading YAML file: {e}")
-            sys.exit(1)
+            request = Request(
+                self.markdown_url,
+                headers={"User-Agent": "CCDC-Release-Notes-PDF-Generator"},
+            )
+            with urlopen(request, timeout=30) as response:
+                markdown_text = response.read().decode("utf-8")
+        except (HTTPError, URLError, TimeoutError, UnicodeDecodeError) as error:
+            raise RuntimeError(
+                f"Could not download release notes from {self.markdown_url}: {error}"
+            ) from error
+
+        self.release_notes = self.parse_markdown_releases(markdown_text)
+        if not self.release_notes:
+            raise ValueError(
+                f"No release notes were found in Markdown from {self.markdown_url}"
+            )
+
+        print(
+            f"Loaded {len(self.release_notes)} release notes entries from "
+            f"{self.markdown_url}"
+        )
+
+    def parse_markdown_releases(self, markdown_text):
+        """Convert the announcement Markdown into the generator's note structure."""
+        releases = []
+        release_blocks = re.split(r"(?=^#\s+\S)", markdown_text, flags=re.MULTILINE)
+
+        for block in release_blocks:
+            block = block.strip()
+            if not block.startswith("# "):
+                continue
+
+            lines = block.splitlines()
+            title = lines[0][2:].strip()
+            date = "Unknown Date"
+            body_start = 1
+
+            for index, line in enumerate(lines[1:], start=1):
+                date_match = re.match(
+                    r"^###\s+(.+?)\s*\|\s*Release Notes\s*$", line.strip()
+                )
+                if date_match:
+                    date = date_match.group(1).strip()
+                    body_start = index + 1
+                    break
+
+            body_lines = lines[body_start:]
+            metadata_start = next(
+                (
+                    index
+                    for index, line in enumerate(body_lines)
+                    if re.match(r"^\|\s*Property\s*\|\s*Value\s*\|\s*$", line)
+                ),
+                len(body_lines),
+            )
+            metadata_lines = body_lines[metadata_start:]
+            body_markdown = "\n".join(body_lines[:metadata_start]).strip()
+            metadata = self.parse_property_table(metadata_lines)
+
+            releases.append({
+                "type": "Release Notes",
+                "title": title,
+                "version": metadata.get("version", "N/A"),
+                "date": date,
+                "dataType": metadata.get("contentType", ""),
+                "slug": metadata.get("slug", ""),
+                "fullText": markdown.markdown(
+                    self.normalize_markdown_list_indentation(body_markdown),
+                    extensions=["sane_lists"],
+                ),
+                "img": "updateImgReleaseNotes",
+            })
+
+        return releases
+
+    @staticmethod
+    def normalize_markdown_list_indentation(markdown_text):
+        """Adapt the source's two-space nested bullets for Python-Markdown."""
+        normalized_lines = []
+
+        for line in markdown_text.splitlines():
+            bullet_match = re.match(r"^( *)([-+*])\s+", line)
+            if bullet_match and len(bullet_match.group(1)) == 2:
+                line = "    " + line[2:]
+                bullet_match = re.match(r"^( *)([-+*])\s+", line)
+
+            # A loose child list needs a blank line before the next parent
+            # item, or Python-Markdown keeps that parent inside the child list.
+            if bullet_match and len(bullet_match.group(1)) == 0 and normalized_lines:
+                previous_bullet = re.match(r"^( {4,})([-+*])\s+", normalized_lines[-1])
+                if previous_bullet:
+                    normalized_lines.append("")
+
+            normalized_lines.append(line)
+
+        return "\n".join(normalized_lines)
+
+    @staticmethod
+    def parse_property_table(lines):
+        """Parse the two-column property table that follows each release."""
+        metadata = {}
+        for line in lines[2:]:
+            if not line.strip().startswith("|"):
+                break
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|", 1)]
+            if len(cells) == 2 and cells[0]:
+                metadata[cells[0]] = cells[1]
+        return metadata
 
     def convert_links_in_html(self, html_content, element):
         """
@@ -431,13 +470,7 @@ class ReleaseNotesPDFGenerator:
                 main_text = main_text.replace('•', '').replace('·', '').strip()
                 
                 # Choose style based on level
-                if level == 0:
-                    elements.append(Paragraph(f"• {main_text}", self.styles['ListItem']))
-                elif level == 1:
-                    elements.append(Paragraph(f"• {main_text}", self.styles['NestedListItem']))
-                else:
-                    # Level 2+ - use deeply nested style (more indentation)
-                    elements.append(Paragraph(f"• {main_text}", self.styles['DeeplyNestedListItem']))
+                elements.append(self.create_list_paragraph(main_text, level))
             
             # Recursively process nested list items
             for nested_li in nested_ul.find_all('li', recursive=False):
@@ -493,12 +526,7 @@ class ReleaseNotesPDFGenerator:
                             item = item.replace('•', '').replace('·', '').strip()
                             if item:
                                 # Add as a second-level item (same level as the one with nested items)
-                                if level == 0:
-                                    elements.append(Paragraph(f"• {item}", self.styles['NestedListItem']))
-                                elif level == 1:
-                                    elements.append(Paragraph(f"• {item}", self.styles['NestedListItem']))
-                                else:
-                                    elements.append(Paragraph(f"• {item}", self.styles['DeeplyNestedListItem']))
+                                elements.append(self.create_list_paragraph(item, level + 1))
         else:
             # Regular li without nested ul - extract text preserving bold and italic formatting
             p_tag = li.find('p')
@@ -548,15 +576,25 @@ class ReleaseNotesPDFGenerator:
             
             if text:
                 # Choose style based on level
-                if level == 0:
-                    elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
-                elif level == 1:
-                    elements.append(Paragraph(f"• {text}", self.styles['NestedListItem']))
-                else:
-                    # Level 2+ - use deeply nested style
-                    elements.append(Paragraph(f"• {text}", self.styles['DeeplyNestedListItem']))
+                elements.append(self.create_list_paragraph(text, level))
         
         return elements
+
+    def create_list_paragraph(self, text, level):
+        """Create a list paragraph with a level-specific indent and marker."""
+        if level == 0:
+            style = self.styles['ListItem']
+            bullet = '•'
+        elif level == 1:
+            style = self.styles['NestedListItem']
+            # Symbol's degree glyph is a reliable hollow-circle marker in the
+            # standard PDF fonts; Helvetica lacks the Unicode circle glyph.
+            bullet = '°'
+        else:
+            style = self.styles['DeeplyNestedListItem']
+            bullet = '▪'
+
+        return Paragraph(text, style, bulletText=bullet)
 
     def parse_html_content(self, html_content):
         """
@@ -579,7 +617,7 @@ class ReleaseNotesPDFGenerator:
             # Track which elements we've already processed to avoid duplication
             processed_elements = set()
             
-            for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'ul', 'li']):
+            for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'ul', 'li']):
                 # Skip if already processed
                 if id(element) in processed_elements:
                     continue
@@ -632,13 +670,13 @@ class ReleaseNotesPDFGenerator:
                     if text:
                         # Check if this paragraph comes before any heading in the document
                         # Get all headings in document order
-                        all_headings = soup.find_all(['h1', 'h2', 'h3'])
+                        all_headings = soup.find_all(['h1', 'h2', 'h3', 'h4'])
                         is_first_paragraph = True
                         if all_headings:
                             # Check if this paragraph appears before the first heading
                             first_heading = all_headings[0]
                             # Get all elements in document order
-                            all_elements = soup.find_all(['p', 'h1', 'h2', 'h3'])
+                            all_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'h4'])
                             element_index = all_elements.index(element) if element in all_elements else -1
                             first_heading_index = all_elements.index(first_heading) if first_heading in all_elements else -1
                             if element_index >= 0 and first_heading_index >= 0:
@@ -707,11 +745,11 @@ class ReleaseNotesPDFGenerator:
                             elements.append(Paragraph(final_text, self.styles['ReleaseContent']))
                     processed_elements.add(id(element))
                 
-                elif element.name in ['h1', 'h2', 'h3']:
+                elif element.name in ['h1', 'h2', 'h3', 'h4']:
                     # Handle headers
                     text = element.get_text().strip()
                     if text:
-                        if element.name == 'h1':
+                        if element.name in ['h1', 'h2']:
                             elements.append(Paragraph(text, self.styles['SectionHeader']))
                         else:
                             elements.append(Paragraph(text, self.styles['SubsectionHeader']))
@@ -741,7 +779,7 @@ class ReleaseNotesPDFGenerator:
                     # Handle individual list items (only if not inside ul)
                     text = element.get_text().strip()
                     if text:
-                        elements.append(Paragraph(f"• {text}", self.styles['ListItem']))
+                        elements.append(self.create_list_paragraph(text, level=0))
                     processed_elements.add(id(element))
                         
         except Exception as e:
@@ -1038,26 +1076,13 @@ def main():
     # Get the directory of the script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Default file paths - try site_announcement_log.yaml first, then newsData.yaml
-    yaml_file = os.path.join(script_dir, 'site_announcement_log.yaml')
-    if not os.path.exists(yaml_file):
-        # Fallback to legacy format
-        yaml_file = os.path.join(script_dir, 'newsData.yaml')
-    
     output_file = os.path.join(script_dir, 'CCDC_Release_Notes.pdf')
-    
-    # Check if YAML file exists
-    if not os.path.exists(yaml_file):
-        print(f"Error: YAML file not found. Tried:")
-        print(f"  - {os.path.join(script_dir, 'site_announcement_log.yaml')}")
-        print(f"  - {os.path.join(script_dir, 'newsData.yaml')}")
-        sys.exit(1)
-    
+
     # Create PDF generator
-    generator = ReleaseNotesPDFGenerator(yaml_file, output_file)
+    generator = ReleaseNotesPDFGenerator(DEFAULT_ANNOUNCEMENT_URL, output_file)
     
     # Load data and generate PDF
-    generator.load_yaml_data()
+    generator.load_markdown_data()
     generator.generate_pdf()
     
     print("Done!")
